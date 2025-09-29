@@ -1,126 +1,180 @@
+// --- CONFIGURAÇÃO GLOBAL ---
+const BLOG_URL = 'https://winner-games-blogger.blogspot.com'; // O SEU DOMÍNIO
+const MAX_POSTS = 5; 
+const AUTOPLAY_INTERVAL = 10000; // 10 segundos
+// --------------------------
+
 /**
- * Inicializa e controla um slider de posts (Autoplay) de forma modular.
- * Filtra os slides baseado no atributo HTML 'data-tag' do container.
+ * Mapeia o ID do slider para sua instância de controle (necessário para o JSONP callback)
+ * Chave: 'slider-id', Valor: { currentSlide: 0, totalSlides: 5, ... funções }
  */
-const SLIDER_AUTOPLAY_INTERVAL = 10000; // 5 segundos
+const sliderInstances = {};
 
-function initializeTagSlider(sliderId) {
-    // 1. Variáveis e Validação
-    const sliderContainer = document.getElementById(sliderId);
-    if (!sliderContainer) return;
+/**
+ * Função de callback global que o Blogger Feed JSONP chama.
+ * Esta função direciona os dados para a instância correta do slider.
+ */
+window.handlePostsFeed = function(json) {
+    // O ID do slider é passado como um parâmetro de URL customizado na busca
+    const script = document.currentScript;
+    const sliderId = script.getAttribute('data-slider-id');
     
-    const requiredTag = sliderContainer.getAttribute('data-tag'); 
-    const slider = sliderContainer.querySelector('.slider-content');
-    const allSlides = sliderContainer.querySelectorAll('.slider-slide');
-    
-    // 2. FILTRAGEM
-    let filteredSlides = [];
-    if (requiredTag) {
-        filteredSlides = Array.from(allSlides).filter(slide => {
-            const slideTags = slide.getAttribute('data-tags') || '';
-            return slideTags.includes(requiredTag);
-        });
-    } else {
-        filteredSlides = Array.from(allSlides);
+    if (!sliderId || !sliderInstances[sliderId]) {
+        return;
     }
-
-    const totalSlides = filteredSlides.length;
     
-    if (totalSlides === 0) {
-        sliderContainer.style.display = 'none';
+    const instance = sliderInstances[sliderId];
+    
+    if (!json.feed || !json.feed.entry || json.feed.entry.length === 0) {
+        instance.postsContainer.innerHTML = '<p style="padding: 20px; color: gray;">Nenhuma postagem encontrada com esta tag.</p>';
         return;
     }
 
-    // 3. Reconstrução do DOM Filtrado
-    slider.innerHTML = ''; 
-    filteredSlides.forEach(slide => {
-        slide.style.width = (100 / totalSlides) + '%';
-        slider.appendChild(slide);
-    });
-
-    // 4. Lógica de Controle
-    const nextButton = sliderContainer.querySelector('.slider-next');
-    const prevButton = sliderContainer.querySelector('.slider-prev');
-    const paginationContainer = sliderContainer.querySelector('.slider-pagination');
-    let currentSlide = 0;
+    instance.postsData = json.feed.entry;
+    instance.totalSlides = instance.postsData.length;
     
-    // Funções de Controle Local
-    function moveSlider(index) {
-        if (index >= totalSlides) {
-            index = 0; 
-        } else if (index < 0) {
-            index = totalSlides - 1; 
+    instance.renderSlider();
+    instance.setupNavigation();
+    instance.startAutoplay();
+};
+
+
+/**
+ * Inicializa a busca e configura a lógica de um slider específico.
+ */
+function initializeFeaturedSlider(sliderId, targetTag) {
+    const container = document.getElementById(sliderId);
+    if (!container) return;
+
+    // --- CRIAÇÃO DA INSTÂNCIA E VARIÁVEIS LOCAIS ---
+    let currentSlide = 0;
+    let totalSlides = 0;
+    let autoplayTimer;
+    
+    const postsContainer = container.querySelector('.posts-container');
+    const prevBtn = container.querySelector('.prev-btn'); // Note o uso da classe/ID
+    const nextBtn = container.querySelector('.next-btn'); // Note o uso da classe/ID
+    const paginationContainer = container.querySelector('.slider-pagination');
+    
+    // --- FUNÇÕES DA INSTÂNCIA ---
+    
+    const moveSlider = (index) => {
+        if (index < 0) {
+            currentSlide = totalSlides - 1;
+        } else if (index >= totalSlides) {
+            currentSlide = 0;
+        } else {
+            currentSlide = index;
         }
-
-        currentSlide = index;
-        const offset = -currentSlide * 100;
-        slider.style.transform = `translateX(${offset}%)`;
         
+        const offset = -currentSlide * 100;
+        postsContainer.style.transform = `translateX(${offset}%)`;
         updatePagination();
-    }
+    };
 
-    function setupPagination() {
+    const setupPagination = () => {
+        if (!paginationContainer) return;
         paginationContainer.innerHTML = '';
-        filteredSlides.forEach((_, index) => {
+        for (let i = 0; i < totalSlides; i++) {
             const dot = document.createElement('span');
             dot.classList.add('pagination-dot');
-            dot.addEventListener('click', () => {
-                moveSlider(index);
-                resetAutoplay();
-            });
+            dot.onclick = () => { moveSlider(i); resetAutoplay(); };
             paginationContainer.appendChild(dot);
-        });
+        }
         updatePagination();
-    }
+    };
 
-    function updatePagination() {
+    const updatePagination = () => {
+        if (!paginationContainer) return;
         const dots = paginationContainer.querySelectorAll('.pagination-dot');
         dots.forEach((dot, index) => {
             dot.classList.toggle('active', index === currentSlide);
         });
-    }
+    };
     
-    // 5. AUTOPLAY (RETORNO AO SLIDER AUTOMÁTICO)
-    let autoplayTimer;
-    
-    function startAutoplay() {
+    const startAutoplay = () => {
+        clearInterval(autoplayTimer);
         autoplayTimer = setInterval(() => {
             moveSlider(currentSlide + 1);
-        }, SLIDER_AUTOPLAY_INTERVAL);
-    }
-
-    function resetAutoplay() {
+        }, AUTOPLAY_INTERVAL);
+    };
+    
+    const resetAutoplay = () => {
         clearInterval(autoplayTimer);
         startAutoplay();
-    }
+    };
 
-    // Navegação
-    nextButton.addEventListener('click', () => {
-        moveSlider(currentSlide + 1);
-        resetAutoplay(); 
-    });
+    const setupNavigation = () => {
+        if (prevBtn) prevBtn.onclick = () => { moveSlider(currentSlide - 1); resetAutoplay(); };
+        if (nextBtn) nextBtn.onclick = () => { moveSlider(currentSlide + 1); resetAutoplay(); };
+        setupPagination();
+    };
+
+    const renderSlider = () => {
+        let html = '';
+        sliderInstances[sliderId].postsData.forEach(post => {
+            const postLink = post.link.find(l => l.rel === 'alternate').href;
+            let imageUrl = post.media$thumbnail ? post.media$thumbnail.url : 'URL_DE_IMAGEM_PADRAO_AQUI'; // Substitua
+            
+            // Ajuste da miniatura
+            if (imageUrl.includes('s72-c')) {
+                imageUrl = imageUrl.replace('s72-c', 's500');
+            }
+
+            const title = post.title.$t;
+            const summary = post.summary.$t.length > 100 ? post.summary.$t.substring(0, 100) + '...' : post.summary.$t;
+
+            html += `
+                <a href="${postLink}" class="slider-post">
+                    <div class="post-image-area">
+                        <img src="${imageUrl}" alt="${title}" class="post-image"/>
+                    </div>
+                    <div class="post-info">
+                        <h3 class="post-title">${title}</h3>
+                        <p class="post-description">${summary}</p>
+                    </div>
+                </a>
+            `;
+        });
+
+        postsContainer.innerHTML = html;
+    };
     
-    prevButton.addEventListener('click', () => {
-        moveSlider(currentSlide - 1);
-        resetAutoplay();
-    });
+    // --- REGISTRO E INÍCIO DA BUSCA ---
     
-    // Inicialização da Instância
-    setupPagination();
-    startAutoplay();
+    // Registra a instância no objeto global para ser acessada pelo handlePostsFeed
+    sliderInstances[sliderId] = {
+        currentSlide, totalSlides, postsData: [],
+        postsContainer, renderSlider, setupNavigation, startAutoplay
+    };
+    
+    // Inicia a busca (o callback chamará handlePostsFeed)
+    const feedUrl = `${BLOG_URL}/feeds/posts/summary/-/${targetTag}?alt=json-in-script&max-results=${MAX_POSTS}`;
+    const script = document.createElement('script');
+    script.src = feedUrl + '&callback=handlePostsFeed';
+    script.setAttribute('data-slider-id', sliderId); // Passa o ID para o callback
+    document.head.appendChild(script);
+
+    // Atualiza o título (Opcional)
+    const titleElement = container.querySelector('.slider-title-tag');
+    if (titleElement) titleElement.textContent = targetTag;
 }
 
-// --- CHAMADA PRINCIPAL (Inicia todos os sliders na página) ---
+// --- INICIALIZAÇÃO AUTOMÁTICA DE TODOS OS WIDGETS ---
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Encontra TODOS os elementos com a classe .tag-slider-container
-    const allSliderContainers = document.querySelectorAll('.tag-slider-container');
+    // 1. Encontra TODOS os containers que o usuário marcou para serem sliders
+    const allContainers = document.querySelectorAll('.featured-slider-container[data-tag]');
     
-    // 2. Para cada um, garante que tenha um ID e o inicializa
-    allSliderContainers.forEach((container, index) => {
-        // Garante um ID único se o usuário esquecer
+    allContainers.forEach((container, index) => {
+        // 2. Garante um ID único para cada um
         if (!container.id) {
-            container.id = `slider-auto-${index}`;
+            container.id = `featured-slider-${index}`;
         }
-        initializeTagSlider(container.id);
+        
+        // 3. Pega a tag do HTML
+        const tag = container.getAttribute('data-tag');
+        
+        // 4. Inicializa o slider com o ID e a TAG lida
+        initializeFeaturedSlider(container.id, tag);
     });
 });
