@@ -1,3 +1,9 @@
+/**
+ * Script Modular e Único para Múltiplos Sliders de Destaques no Blogger.
+ * Este arquivo deve ser referenciado via <script src='...'/> no seu template.
+ * Por Gemini (Google).
+ */
+
 // --- CONFIGURAÇÃO GLOBAL ---
 const BLOG_URL = 'https://winner-games-blogger.blogspot.com'; // O SEU DOMÍNIO
 const MAX_POSTS = 5; 
@@ -5,18 +11,18 @@ const AUTOPLAY_INTERVAL = 10000; // 10 segundos
 // --------------------------
 
 /**
- * Mapeia o ID do slider para sua instância de controle (necessário para o JSONP callback)
- * Chave: 'slider-id', Valor: { currentSlide: 0, totalSlides: 5, ... funções }
+ * Mapeia o ID do slider para sua instância de controle.
+ * Necessário para o JSONP callback do Blogger.
  */
 const sliderInstances = {};
 
 /**
  * Função de callback global que o Blogger Feed JSONP chama.
- * Esta função direciona os dados para a instância correta do slider.
+ * Direciona os dados para a instância correta do slider.
  */
 window.handlePostsFeed = function(json) {
-    // O ID do slider é passado como um parâmetro de URL customizado na busca
     const script = document.currentScript;
+    // O ID do slider foi anexado ao script que fez a requisição
     const sliderId = script.getAttribute('data-slider-id');
     
     if (!sliderId || !sliderInstances[sliderId]) {
@@ -46,17 +52,17 @@ function initializeFeaturedSlider(sliderId, targetTag) {
     const container = document.getElementById(sliderId);
     if (!container) return;
 
-    // --- CRIAÇÃO DA INSTÂNCIA E VARIÁVEIS LOCAIS ---
+    // --- VARIÁVEIS DE ESTADO LOCAIS ---
     let currentSlide = 0;
     let totalSlides = 0;
     let autoplayTimer;
     
     const postsContainer = container.querySelector('.posts-container');
-    const prevBtn = container.querySelector('.prev-btn'); // Note o uso da classe/ID
-    const nextBtn = container.querySelector('.next-btn'); // Note o uso da classe/ID
+    const prevBtn = container.querySelector('.prev-btn');
+    const nextBtn = container.querySelector('.next-btn');
     const paginationContainer = container.querySelector('.slider-pagination');
     
-    // --- FUNÇÕES DA INSTÂNCIA ---
+    // --- FUNÇÕES DE CONTROLE LOCAIS ---
     
     const moveSlider = (index) => {
         if (index < 0) {
@@ -72,6 +78,14 @@ function initializeFeaturedSlider(sliderId, targetTag) {
         updatePagination();
     };
 
+    const updatePagination = () => {
+        if (!paginationContainer) return;
+        const dots = paginationContainer.querySelectorAll('.pagination-dot');
+        dots.forEach((dot, index) => {
+            dot.classList.toggle('active', index === currentSlide);
+        });
+    };
+    
     const setupPagination = () => {
         if (!paginationContainer) return;
         paginationContainer.innerHTML = '';
@@ -82,14 +96,6 @@ function initializeFeaturedSlider(sliderId, targetTag) {
             paginationContainer.appendChild(dot);
         }
         updatePagination();
-    };
-
-    const updatePagination = () => {
-        if (!paginationContainer) return;
-        const dots = paginationContainer.querySelectorAll('.pagination-dot');
-        dots.forEach((dot, index) => {
-            dot.classList.toggle('active', index === currentSlide);
-        });
     };
     
     const startAutoplay = () => {
@@ -114,9 +120,8 @@ function initializeFeaturedSlider(sliderId, targetTag) {
         let html = '';
         sliderInstances[sliderId].postsData.forEach(post => {
             const postLink = post.link.find(l => l.rel === 'alternate').href;
-            let imageUrl = post.media$thumbnail ? post.media$thumbnail.url : 'URL_DE_IMAGEM_PADRAO_AQUI'; // Substitua
+            let imageUrl = post.media$thumbnail ? post.media$thumbnail.url : 'URL_DE_IMAGEM_PADRAO_AQUI'; 
             
-            // Ajuste da miniatura
             if (imageUrl.includes('s72-c')) {
                 imageUrl = imageUrl.replace('s72-c', 's500');
             }
@@ -142,39 +147,47 @@ function initializeFeaturedSlider(sliderId, targetTag) {
     
     // --- REGISTRO E INÍCIO DA BUSCA ---
     
-    // Registra a instância no objeto global para ser acessada pelo handlePostsFeed
+    // 1. Registra a instância no objeto global para o callback
     sliderInstances[sliderId] = {
         currentSlide, totalSlides, postsData: [],
         postsContainer, renderSlider, setupNavigation, startAutoplay
     };
     
-    // Inicia a busca (o callback chamará handlePostsFeed)
+    // 2. Inicia a busca
     const feedUrl = `${BLOG_URL}/feeds/posts/summary/-/${targetTag}?alt=json-in-script&max-results=${MAX_POSTS}`;
     const script = document.createElement('script');
     script.src = feedUrl + '&callback=handlePostsFeed';
-    script.setAttribute('data-slider-id', sliderId); // Passa o ID para o callback
+    script.setAttribute('data-slider-id', sliderId); 
     document.head.appendChild(script);
 
-    // Atualiza o título (Opcional)
+    // 3. Atualiza o título (Opcional)
     const titleElement = container.querySelector('.slider-title-tag');
     if (titleElement) titleElement.textContent = targetTag;
 }
 
-// --- INICIALIZAÇÃO AUTOMÁTICA DE TODOS OS WIDGETS ---
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. Encontra TODOS os containers que o usuário marcou para serem sliders
-    const allContainers = document.querySelectorAll('.featured-slider-container[data-tag]');
-    
-    allContainers.forEach((container, index) => {
-        // 2. Garante um ID único para cada um
-        if (!container.id) {
-            container.id = `featured-slider-${index}`;
-        }
+// --- PONTO DE ENTRADA CORRIGIDO (Inicialização Atrasada e Segura) ---
+function safeInitializeSliders() {
+    // Atraso de 100ms para dar tempo dos widgets do Blogger carregarem o HTML.
+    setTimeout(() => {
+        const allContainers = document.querySelectorAll('.featured-slider-container[data-tag]');
         
-        // 3. Pega a tag do HTML
-        const tag = container.getAttribute('data-tag');
+        allContainers.forEach((container, index) => {
+            // Garante um ID único
+            if (!container.id) {
+                container.id = `featured-slider-${index}`;
+            }
+            
+            const tag = container.getAttribute('data-tag');
+            initializeFeaturedSlider(container.id, tag);
+        });
         
-        // 4. Inicializa o slider com o ID e a TAG lida
-        initializeFeaturedSlider(container.id, tag);
-    });
-});
+    }, 100); 
+}
+
+// 1. Verifica se a página já carregou (para scripts que carregam lentamente)
+if (document.readyState === 'complete') {
+    safeInitializeSliders();
+} else {
+    // 2. Espera o carregamento completo do DOM e de recursos externos (mais robusto)
+    window.addEventListener('load', safeInitializeSliders);
+}
